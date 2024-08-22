@@ -1,0 +1,583 @@
+---
+title: "Divvytrips_Data_Cleaning"
+author: "Brian Allen"
+date: "2024-06-05"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Exploring and Cleaning
+
+I will first explore a few of the monthly csv data files.  
+I will be looking for potential data cleaning opportunities and any issues with data types or otherwise.  
+Looking to just become familiar with the data prior to creating a dataframe. 
+
+### Loading Packages
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(janitor)
+library(lubridate)
+library(vroom)
+library(geosphere)
+```
+
+### Load Monthly Data
+Loading 202305 data and viewing the data to get familiar.
+```{r load_202305, message=FALSE, warning=FALSE}
+raw_202305 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202305-divvy-tripdata.csv")
+View(raw_202305)
+summary(raw_202305)
+head(raw_202305)
+```
+
+Looking at summary and header to get familiar.  
+I already see that there are null values in station start/end and that will need to be cleaned.  
+Potentially will need to deal with date/time as well.  
+
+Colnames & str
+
+```{r message=FALSE, warning=FALSE}
+str(raw_202305)
+colnames(raw_202305)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+raw_202306 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202306-divvy-tripdata.csv")
+raw_202307 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202307-divvy-tripdata.csv")
+raw_202308 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202308-divvy-tripdata.csv")
+raw_202309 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202309-divvy-tripdata.csv")
+raw_202310 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202310-divvy-tripdata.csv")
+raw_202311 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202311-divvy-tripdata.csv")
+raw_202312 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202312-divvy-tripdata.csv")
+raw_202401 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202401-divvy-tripdata.csv")
+raw_202402 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202402-divvy-tripdata.csv")
+raw_202403 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202403-divvy-tripdata.csv")
+raw_202404 = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/202404-divvy-tripdata.csv")
+```
+Check column names
+```{r message=FALSE, warning=FALSE}
+colnames(raw_202306)
+colnames(raw_202307)
+colnames(raw_202308)
+colnames(raw_202309)
+colnames(raw_202310)
+colnames(raw_202311)
+colnames(raw_202312)
+colnames(raw_202401)
+colnames(raw_202402)
+colnames(raw_202403)
+colnames(raw_202404)
+```
+
+Column names look good. removing these monthly dataframes from my environment.
+Taking up some memory space. There is a better way to combine them.
+
+Building a function to read all the files into a data frame. This raw data will then be cleaned.  
+
+First, verify the list of file names is correct before passing to vroom
+```{r File Name List, message=FALSE, warning=FALSE, include=FALSE}
+files = fs::dir_ls(glob = "*-divvy-tripdata.csv")
+files
+```
+Now that the list is verified, create the raw data frame. View the header to verify
+```{r Create Dataframe, message=FALSE, warning=FALSE, include=FALSE}
+raw_data = vroom(files)
+head(raw_data)
+```
+
+Dealing with null values. Checking to see if null station names have IDs.  
+I will create a table for blank station names that have a station ID. I can use this to replace names to clean.  
+If the table is empty, than blank names also have blank IDs and we can just remove NA. 
+```{r Null Checks, message=FALSE, warning=FALSE}
+filtered_data_end = raw_data %>% 
+  filter(is.na(end_station_name) & !is.na(end_station_id))
+
+filtered_data_start = raw_data %>% 
+  filter(is.na(start_station_name) & !is.na(start_station_id))
+
+
+```
+Both tables are blank. So we can assume both columns are empty together.  
+We will not have the opportunity to correct a blank station ID, so they should be removed.
+Any other missing values would potentially cause issues in analysis, so it should be removed. 
+I'll also add a total time variable. I suspect total ride time will be a factor. 
+
+```{r Remove NA Add Time, message=FALSE, warning=FALSE}
+cleaned_data = raw_data %>% 
+  na.omit(raw_data) %>% 
+  mutate(total_time = difftime(ended_at, started_at, units = 'secs')) %>% 
+  arrange(start_station_name)
+
+cleaned_data$total_time = as.double(cleaned_data$total_time)
+
+```
+Confirmed that null values have been removed.  
+Looking at the total_time variable I find negative values. These look unusable.
+This also makes me think that I should consider a threshold for total_time.
+Ride that last 10 seconds, for example, do not have much value for analysis. 
+
+First I'll remove the rows with total_times equal to or less than zero. Then
+we will analyze how many trips are under 1 minute. Just the mix of ride times.
+
+```{r Remove Bad Times, message=FALSE, warning=FALSE, include=FALSE}
+test_data = cleaned_data %>% 
+  filter(total_time > 0)
+
+```
+
+After viewing the data, there are a number of 1 second rides. There are also
+some huge numbers at a staionid with "Charging" in the name. Makes me think that
+I should look for potential stations that may have to do with maintenance. 
+
+
+```{r echo = T, results = 'hide',message=FALSE, warning=FALSE}
+unique(cleaned_data$start_station_name)
+sort(unique(cleaned_data$start_station_name))
+
+```
+
+"OH Charging Stx - Test" stands out to me as not a real stop. Could be for
+maintenance or tests. I'll check how many there are and remove them. 
+
+```{r message=FALSE, warning=FALSE}
+test_count = cleaned_data %>% 
+  filter(start_station_name == "OH Charging Stx - Test")
+
+test_count %>% 
+  summarize(trips = n())
+
+```
+Just 1. I'll look at end station too. I'll still remove it. 
+
+```{r echo = T, results = 'hide',message=FALSE, warning=FALSE}
+sort(unique(cleaned_data$end_station_id), decreasing = TRUE)
+```
+the OH Test station is in end station also. Lets count it. 
+
+```{r message=FALSE, warning=FALSE}
+test_count = cleaned_data %>% 
+  filter(start_station_name == "OH Charging Stx - Test")
+
+test_count %>% 
+  summarize(trips = n())
+
+```
+
+```{r message=FALSE, warning=FALSE}
+test_count = cleaned_data %>% 
+  filter(start_station_name == "OH Charging Stx - Test")
+
+```
+
+```{r message=FALSE, warning=FALSE}
+test_count = cleaned_data %>% 
+  filter(grepl("Base",end_station_name))
+
+```
+
+A few discoveries here. Station names with BASE in them are the devvy
+base where presumably maintenance is done. These should be removed.
+I also discovered 0.000 End LAT End Lon coordinates. These will need to be
+filtered out. 
+You can use the Long LATs in google maps to verify station locations.
+Then finally I will look for duplicate trip ID numbers and remove any. 
+
+```{r message=FALSE, warning=FALSE}
+cleaned_data %>% 
+  summarize(start_lat_min = min(start_lat),start_lat_max = max(start_lat),
+            start_lng_min = min(start_lng),start_lng_max = max(start_lng),
+            end_lat_min = min(end_lat),end_lat_max = max(end_lat),
+            end_lng_min = min(end_lng),end_lng_max = max(end_lng))
+
+```
+
+Removing these stations and the bad long lat data.
+```{r message=FALSE, warning=FALSE}
+cleaned_data = cleaned_data %>% 
+  filter(start_station_name != "OH Charging Stx - Test")
+cleaned_data = cleaned_data %>% 
+  filter(start_station_id != "Hubbard Bike-checking (LBS-WH-TEST)")
+cleaned_data = cleaned_data %>% 
+  filter(end_station_id != "Hubbard Bike-checking (LBS-WH-TEST)")
+cleaned_data = cleaned_data %>% 
+  filter(end_lat != 0)
+
+
+```
+
+Now check for duplicate IDs. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+cleaned_data %>% 
+  summarize(unq_ride_id = n_distinct(ride_id))
+
+test_data = cleaned_data %>% 
+  distinct(ride_id, .keep_all = TRUE)
+
+```
+Unique ride IDs equals the total rows in the dataframe. 
+
+Splitting up date_time into parts. Adding month abbreviations for classification. 
+```{r message=FALSE, warning=FALSE}
+cleaned_data = cleaned_data %>% 
+  dplyr::mutate(year = lubridate::year(started_at),
+                month = lubridate::month(started_at),
+                day = lubridate::day(started_at))
+```
+
+Adding month abbreviation for ease of reading. 
+```{r message=FALSE, warning=FALSE}
+cleaned_data = cleaned_data %>% 
+  mutate(month_abb = month.abb[month])
+```
+
+Going to add a weekdays variable to the data to compare rides between weekends 
+and weekdays. I will also add variable classification for morning afternoon evening.
+
+```{r message=FALSE, warning=FALSE}
+cleaned_data = cleaned_data %>% 
+  mutate(day_week = weekdays(started_at))
+
+time_breaks = hour(hm("00:00", "06:00", "12:00", "18:00", "23:59"))
+time_labels = c("Night", "Morning", "Afternoon", "Evening")
+
+cleaned_data$time_of_day = cut(x=hour(cleaned_data$started_at),
+                               breaks = time_breaks, labels = time_labels,
+                               include.lowest = TRUE)
+```
+
+Adding distance in meters. Could run this through google maps API for some
+interesting insights and more accurate distances. I am just not paying for that. 
+```{r message=FALSE, warning=FALSE}
+start_coors = cbind(cleaned_data$start_lng,cleaned_data$start_lat)
+end_coors = cbind(cleaned_data$end_lng,cleaned_data$end_lat)
+
+cleaned_data = cleaned_data %>% 
+  mutate(distance = distGeo(start_coors,end_coors))
+
+```
+
+Need to make the time variable a dbl.
+```{r message=FALSE, warning=FALSE}
+cleaned_data$total_time = as.double(cleaned_data$total_time)
+
+```
+
+Function for calculating the ride cost as the cost was not provided. 
+I was able to find pricing details online and there is enough data
+to calculate the cost per ride assuming that a docked_bike is a scooter.
+```{r}
+#ride_value = function(a,b) {
+#  if(a$member_casual[b] == "member" && a$rideable_type[b] == "classic_bike") {
+#    result = 0.18 * (a$total_time[b] - 2700) / 60
+#  } else if(a$member_casual[b] == "member" && a$rideable_type[b] == "electric_bike") {
+#    result = 0.18 * a$total_time[b] / 60
+#  } else if(a$member_casual[b] == "member" && a$rideable_type[b] == "docked_bike") {
+#     result = 0.29 * a$total_time[b] / 60
+#  } else if(a$member_casual[b] == "casual" && a$rideable_type[b] == "classic_bike") {
+#    result = 1 + (0.18 * (a$total_time[b] - 10800)/60)
+#  } else {
+#    result = 1 + (0.44 * a$total_time[b] / 60)
+#  }
+#  if(result < 1) {
+#    result = 1
+#  } else {
+#    result = result
+#  }
+#  return(result)
+#}
+```
+
+r is inefficient at running this function over the data. I will use
+python to iterate the function over the data and read the new csv back into
+the environment. 
+```{r message=FALSE, warning=FALSE}
+# First write the cleaned data to csv for python to read
+write.csv(cleaned_data, "C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_clean.csv")
+```
+
+Here is the python code
+```{undefined eval=F, echo=T, message=FALSE, warning=FALSE}
+import pandas as pd
+
+# read the cleaned data into a datafram
+divvy = pd.read_csv('C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_clean.csv')
+
+# define a fucntion to calculate cost of ride
+def ride_value(a, b):
+    if a['member_casual'][b] == "member" and a['rideable_type'][b] == "classic_bike":
+        result = 0.18 * (a['total_time'][b] - 2700) / 60
+    elif a['member_casual'][b] == "member" and a['rideable_type'][b] == "electric_bike":
+        result = 0.18 * a['total_time'][b] / 60
+    elif a['member_casual'][b] == "member" and a['rideable_type'][b] == "docked_bike":
+        result = 0.29 * a['total_time'][b] / 60
+    elif a['member_casual'][b] == "casual" and a['rideable_type'][b] == "classic_bike":
+        result = 1 + (0.18 * (a['total_time'][b] - 10800) / 60)
+    else:
+        result = 1 + (0.44 * a['total_time'][b] / 60)
+
+    if result < 0:
+        result = 1
+
+    return result
+
+# initialize the 'cost' column
+divvy['cost'] = 0
+
+# iterate the function in the datafram
+for ind in divvy.index:
+  divvy['cost'][ind] = ride_value(divvy,ind)
+
+divvy.to_csv('C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_cost.csv')
+```
+
+Read the new data after the python calculations.
+```{r message=FALSE, warning=FALSE}
+divvy_data = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_cost.csv")
+```
+
+Last thing to check is the distribution of time. 
+
+```{r}
+test_divvy = divvy_data
+
+```
+
+```{r message=FALSE, warning=FALSE}
+histvecbrk3 = seq(100,1800, by=100)
+
+test_divvy %>% 
+  filter(member_casual == "casual" & total_time < 1801) %>% 
+  ggplot(aes(x=total_time, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 100, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Casual Times",
+    subtitle = "3min to 1hrs",
+    caption = "Source: divvytrips data",
+    x = "Time Seconds",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 100) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk3) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+
+test_divvy %>% 
+  filter(member_casual == "member" & total_time < 1801) %>% 
+  ggplot(aes(x=total_time, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 100, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Member Times",
+    subtitle = "3min to 1hrs",
+    caption = "Source: divvytrips data",
+    x = "Time Seconds",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 100) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk3) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+I want to look at the distribution of time.  
+```{r message=FALSE, warning=FALSE}
+time0 = sum(test_divvy$total_time >= 0 & test_divvy$total_time < 179)
+
+time3 = sum(test_divvy$total_time > 179 & test_divvy$total_time < 359)
+
+time6 = sum(test_divvy$total_time > 359 & test_divvy$total_time < 539)
+
+time9 = sum(test_divvy$total_time > 539 & test_divvy$total_time < 719)
+
+time12 = sum(test_divvy$total_time > 719 & test_divvy$total_time < 899)
+
+time15 = sum(test_divvy$total_time > 899 & test_divvy$total_time < 1079)
+
+time18 = sum(test_divvy$total_time > 1079 & test_divvy$total_time < 1259)
+
+time21 = sum(test_divvy$total_time > 1259 & test_divvy$total_time < 1439)
+
+time24 = sum(test_divvy$total_time > 1439 & test_divvy$total_time < 1619)
+
+time27 = sum(test_divvy$total_time > 1619 & test_divvy$total_time < 1799)
+
+time = c(0,3,6,9,12,15,18,21,24,27)
+tripscount = c(time0,time3,time6,time9,time12,time15,time18,time21,time24,time27)
+timeblock_chart = data.frame(time,tripscount)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+options(scipen = 9)
+ggplot(timeblock_chart, aes(x = factor(time), y = tripscount)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Trips Count Over Time",
+       x = "Time",
+       y = "Trips Count") +
+  theme_minimal()
+```
+
+I'll look at the distribution of the total_time. 
+
+```{r message=FALSE, warning=FALSE}
+test_data = test_divvy %>% 
+  filter(total_time > 0)
+
+test_data %>% 
+  summarize(min = min(total_time), max = max(total_time), 
+            mean = mean(total_time), median = median(total_time), 
+            mad = mad(total_time), sd = sd(total_time),
+            iqr = IQR(total_time), q1 = quantile(total_time, probs = c(0.25)),
+            q3 = quantile(total_time, probs = c(0.75)))
+
+test_data %>% 
+  group_by(member_casual) %>% 
+  summarize(min = min(total_time), max = max(total_time), 
+            mean = mean(total_time), median = median(total_time), 
+            mad = mad(total_time), sd = sd(total_time),
+            iqr = IQR(total_time), q1 = quantile(total_time, probs = c(0.25)),
+            q3 = quantile(total_time, probs = c(0.75)))
+```
+
+histogram
+
+```{r message=FALSE, warning=FALSE}
+options(scipen = 9)
+ggplot(data = test_divvy, aes(x=total_time)) + 
+  geom_histogram(binwidth = 500)+
+  xlim(0,10000)
+
+```
+
+Times are heavily skewed. Now I will look at the number of trips less than 3min.
+Then the number of trips longer than 8hrs. 
+
+```{r message=FALSE, warning=FALSE}
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < 180),
+            short_prct = sum(test_divvy$total_time < 180)/n()*100,
+            long = sum(test_divvy$total_time > 28800),
+            long_prct = sum(test_divvy$total_time > 28800)/n()*100)
+```
+7% less than 3 minutes and a tiny % more than 8 hrs.  
+I'll use the IQR method to look at these outliers.
+
+```{r message=FALSE, warning=FALSE}
+iqr = IQR(test_data$total_time)
+quartile1 = quantile(test_divvy$total_time, probs = c(0.25))
+quartile3 = quantile(test_divvy$total_time, probs = c(0.75))
+
+
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < quartile1-1.5*iqr),
+            short_prct = sum(test_divvy$total_time < quartile1-1.5*iqr)/n()*100,
+            long = sum(test_divvy$total_time > quartile3+1.5*iqr),
+            long_prct = sum(test_divvy$total_time > quartile3+1.5*iqr)/n()*100)
+```
+I don't like what we get with the IQR method. The distribution is not normal
+so standard deviation is not a good method either.
+I will have to make an assumption that dropping the bottom and top 1% will
+knock enough outliers out to be helpful. 
+
+```{r message=FALSE, warning=FALSE}
+short_quartile = quantile(test_divvy$total_time, probs = c(0.01))
+long_quartile = quantile(test_divvy$total_time, probs = c(0.99))
+
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < short_quartile),
+            short_prct = sum(test_divvy$total_time < short_quartile)/n()*100,
+            long = sum(test_divvy$total_time > long_quartile),
+            long_prct = sum(test_divvy$total_time > long_quartile)/n()*100,
+            short_time = short_quartile, long_time = long_quartile)
+```
+Looking at the 1% numbers. I think 27 seconds is real short for a bike ride. 
+I think dropping 2 minute would be best. 
+For the upper range the 6,042 seconds is a little over 1.5hours. 
+A day pass for a bike is for 3 hours free on classic bikes. I think I will drop
+over 8 hours.
+```{r message=FALSE, warning=FALSE}
+shortsec = 120
+longsec = 28800
+
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < shortsec),
+            short_prct = sum(test_divvy$total_time < shortsec)/n()*100,
+            long = sum(test_divvy$total_time > longsec),
+            long_prct = sum(test_divvy$total_time > longsec)/n()*100,
+            short_time = shortsec, long_time = longsec)
+
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < shortsec & test_divvy$member_casual == "casual"),
+            short_prct = sum(test_divvy$total_time < shortsec & test_divvy$member_casual == "casual")/n()*100,
+            long = sum(test_divvy$total_time > longsec & test_divvy$member_casual == "casual"),
+            long_prct = sum(test_divvy$total_time > longsec & test_divvy$member_casual == "casual")/n()*100,
+            short_time = shortsec, long_time = longsec)
+
+test_divvy %>% 
+  summarize(total = n(), short = sum(test_divvy$total_time < shortsec & test_divvy$member_casual == "member"),
+            short_prct = sum(test_divvy$total_time < shortsec & test_divvy$member_casual == "member")/n()*100,
+            long = sum(test_divvy$total_time > longsec & test_divvy$member_casual == "member"),
+            long_prct = sum(test_divvy$total_time > longsec & test_divvy$member_casual == "member")/n()*100,
+            short_time = shortsec, long_time = longsec)
+```
+I think 1-3 percent is reasonable to remove outliers.
+There seems to be more members who ride shorter rides. We will see if that is the same. 
+
+
+Dropping negative time. I think there are some interesting insights into the
+trips that are too short. I will make the assumption that trips less than
+2 minutes are not intentional. 
+
+I'll keep a dataframe with times from zero and up for some insights.
+The main dataset will be filtered from 2 minutes
+```{r message=FALSE, warning=FALSE}
+
+divvy_data_time = divvy_data %>% 
+  filter(total_time >= 0)
+
+divvy_data = divvy_data %>% 
+  filter(total_time > 119 & total_time < 28801)
+```
+
+Going to take a look at the average times. 
+```{r message=FALSE, warning=FALSE}
+divvy_data %>% 
+  group_by(member_casual) %>% 
+  summarise(average_ride_time = mean(total_time))
+```
+Interesting that member average is less than casual. I would guess that members
+are more point A to point B commuters vs casual riders maximizing their use
+for longer outings. 
+Lets check the histogram and see if the skew is better. 
+
+```{r}
+options(scipen = 9)
+ggplot(data = divvy_data, aes(x=total_time)) + 
+  geom_histogram(binwidth = 500)+
+  xlim(0,10000) +
+  facet_wrap(~member_casual)
+```
+
+At this point I am happy with the cleaning of the data. 
+Write to file. 
+```{r message=FALSE, warning=FALSE}
+write.csv(divvy_data, "C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data.csv")
+write.csv(divvy_data_time, "C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data_time.csv")
+```
+

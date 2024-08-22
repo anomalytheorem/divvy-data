@@ -1,0 +1,14 @@
+<style>
+
+body > slides {
+    padding: 0;
+    margin: -35px 0 0 -270px;
+}
+
+slides > slide{
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+}
+
+</style>

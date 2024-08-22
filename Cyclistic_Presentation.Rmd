@@ -1,0 +1,165 @@
+---
+title: "Cyclistic Presentation"
+author: "Brian Allen"
+date: "2024-07-25"
+output: 
+  ioslides_presentation:
+    css: style.css
+      smaller: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(janitor)
+library(lubridate)
+library(vroom)
+library(geosphere)
+options(scipen = 9)
+
+#Read the divvy_data csv from our cleaning
+divvy_data = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data.csv")
+divvy_data_time = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data_time.csv")
+```
+
+## Case Study
+
+Cyclistic is looking for marketing strategies to convert casual riders into annual members.
+
+I am a Jr analyst that has been given these questions to answer about the data
+
+1. How do members and casuals differ from each other?
+2. Is there a 'why' in the data for casual riders to convert?
+3. How can marketing be used to highlight the 'why' and influence casuals?
+
+This visual presentation will be more wordy than I would actually use. This is intended to be shown online where I will not be able to give a presentation in person. I am substituting my absence with words.
+
+## My Questions for Management
+
+After reviewing and cleaning the data there are three questions that I would come back
+to management with.
+
+- The data is missing the cost of each trip. This should be available information. I was able to calculate this information, but those calculations could be avoided. I would ask if this data could be requested
+- The data is also missing customer ID of some kind. When attempting to compare and contrast members and casual riders, it would be beneficial to identify frequent casuals vs. one-time tourists. This data could have more benefits and allow for cluster analysis of the different market segments. I would push back earnestly for this data.
+- I would also request the use of googlemaps API. I would have done this myself in this project if my budget was more willing. The data already has the long lats for the API to use. You could get much more detailed route information with this.
+
+## Assumptions
+
+There are a number of assumptions that I made in this analysis when cleaning and preparing the data.
+
+- Time. Trip time is a vital variable in the data and I took care with this assumption. I used a combination of statistics and common sense to reach this assumption. There are a huge amount of trips under 2 minutes. If you stare at a stop watch for 120 seconds, it seems like a decent amount of time. But if I just casually leave my office on the second floor and walk to my car in the driveway, I don't always accomplish that in under 2 minutes. It is a small amount of time and it makes me think that these trips are potentially mistakes by the customer or "canceled" trips. My assumption was that these trips should be ignored and dropped from the data. 
+
+- Distance. Without googlemaps API, I used a simple straight line distance calculation. I did use earth curvature, but that differnce would be lost in rounding at these small distances.
+
+- Cost. Without the cost data I had to create a script to calculate the cost. I found the information online, but this will not always be accurate as the costs are subject to change in the future.
+
+## How do members and casuals differ from each other?
+
+Casual riders do have a higher average ride time. This could make sense if you assume that member riders are more likely to be commuters. 
+
+The assumption that members are more likely to be commuters is strengthened by the next visuals. you can see a significant difference in the distribution of trips that have a 0 meter distance. 0 meters would mean that the trip starts and stops at the same station. 
+
+## Members
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+histvecbrk2 = seq(0,2500, by=250)
+
+divvy_data %>% 
+  filter(distance < 2500 & total_time < 3601 & member_casual == "member") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 250, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Member Riders",
+    subtitle = "Less than 2,500m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 250) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+## Casuals
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+divvy_data %>% 
+  filter(distance < 2500 & total_time < 3601 & member_casual == "casual") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 250, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Casual Riders",
+    subtitle = "Less than 2,500m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 250) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+## How do members and casuals differ from each other?
+
+Those are the most obvious differences between members and casuals. I could include several other visuals that look very similar because, apart from the average ride time and the frequency of 0 meter trips, member and casual riders are very similar. 
+
+Without additional customer data it is difficult to identify other differences. It does seem that Cyclistic is aware of this because there is already a Day Pass offered. This membership type is curiously not included in the data. The Day Pass would seem to capture riders looking for membership benefits for a shorter amount of time. 
+
+## Is there a 'why' in the data for casual riders to convert?
+
+The why is in the cost savings.
+
+You could look at the ride behavior of casual customers and calculate the potential savings if the customer was a member. 
+
+Without customer data I can't describe these customers well. However, you can imagine a customer who may not commute but does use a bike every weekend. Better rates and free unlocks can add up.
+
+## How can marketing be used to highlight the 'why' and influence casuals?
+
+My suggestion would be to use the app to push notifications to customers.
+
+You can calculate their potential savings if they were members on a weekly or monthly activity basis. These notifications could be convincing.
+
+I would also like to highlight a potential lost customer base.
+
+## The Lost Riders
+
+```{r}
+divvy_data_time %>% 
+  filter(total_time < 30) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x= factor(month_abb,levels=month.abb),fill=member_casual))+
+    labs(
+    title = "Number of Trips",
+    subtitle = "Less than 30 Seconds",
+    caption = "Source: divvytrips data",
+    x = "Months",
+    y = "Trips"
+  )
+```
+
+## How can marketing be used to highlight the 'why' and influence casuals?
+
+You can see that there are a number of casual riders with trips less than 30 seconds.
+
+I would assume this has to be a mistake by the customer and this cost them $1 for the unlock. You can see members can take advantage of the free unlock.
+
+There is a potential that this could sour the customers perception of Cyclistic and they may not return. With more customer data you could look into this.
+
+With the app you could identify a casual customer who may have made this mistake and refund them the $1. This is my second marketing suggestion.

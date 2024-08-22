@@ -1,0 +1,706 @@
+---
+title: "Divvytrips_Case_Study"
+author: "Brian Allen"
+date: "2024-05-16"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Detailed Analysis
+
+Cyclistic is looking for marketing strategies to convert casual riders into annual members.
+
+## Questions to answer about the data
+
+1. How do members and casuals differ from each other?
+2. Is there a 'why' in the data for casual riders to convert?
+3. How can marketing be used to highlight the 'why' and influence casuals?
+
+### Loading Packages
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(janitor)
+library(lubridate)
+library(vroom)
+library(geosphere)
+options(scipen = 9)
+
+#Read the divvy_data csv from our cleaning
+divvy_data = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data.csv")
+divvy_data_time = read.csv("C:/Users/barry/~coding/R Programming/googleclass/divvytrips/divvy_data_time.csv")
+```
+
+My hypothesis is that the classic bikes and electric bikes may have differences 
+when it comes to comparing members and casuals. 
+
+I also want to add a column that calculates total ride time. I think that there
+may be a difference with length of ride.
+
+I also want to calculate the most frequent routes and specifically look at
+routes that are frequent between Mon-Fri as well as the weekend Sat-Sun.
+
+First lets test the mean ride times and top 5 starting and ending stations by member type. 
+
+```{r}
+
+divvy_data %>% 
+  group_by(member_casual,rideable_type) %>% 
+  summarise(mean_ride = mean(total_time))
+
+```
+
+
+```{r}
+divvy_data %>% 
+  filter(member_casual == 'casual' & start_station_id == "13022" & rideable_type == 'classic_bike') %>%
+  summarise(start_station = n())
+```
+
+Separating the data by bike type to simplify comparison and reduce computation
+time on my personal computer. 
+
+```{r Classic_bikes}
+classic_data = divvy_data %>% 
+  filter(rideable_type == 'classic_bike')
+
+head(classic_data)
+```
+
+```{r Electric_bikes}
+electric_data = divvy_data %>% 
+  filter(rideable_type == 'electric_bike')
+
+head(electric_data)
+```
+
+```{r docked_bikes}
+docked_data = divvy_data %>% 
+  filter(rideable_type == 'docked_bike')
+
+head(docked_data)
+```
+Find most frequent start stations. 
+
+
+```{r Classic_top_casual_start}
+classic_data %>% 
+  filter(member_casual == 'casual') %>%
+  group_by(start_station_id,start_station_name) %>% 
+  summarise(start_station = n()) %>% 
+  arrange(desc(start_station)) %>% 
+  head(n=10)
+```
+
+```{r Classic_top_member_start}
+classic_data %>% 
+  filter(member_casual == 'member') %>%
+  group_by(start_station_id,start_station_name) %>% 
+  summarise(start_station = n()) %>% 
+  arrange(desc(start_station)) %>% 
+  head(n=10)
+```
+Top end stations. 
+
+```{r Classic_top_casual_end}
+classic_data %>% 
+  filter(member_casual == 'casual') %>%
+  group_by(end_station_id,end_station_name) %>% 
+  summarise(end_station = n()) %>% 
+  arrange(desc(end_station)) %>% 
+  head(n=10)
+```
+
+
+```{r Classic_top_member_end}
+classic_data %>% 
+  filter(member_casual == 'member') %>%
+  group_by(end_station_id,end_station_name) %>% 
+  summarise(end_station = n()) %>% 
+  arrange(desc(end_station)) %>% 
+  head(n=10)
+```
+electric
+
+```{r electric_top_member_start}
+electric_data %>% 
+  filter(member_casual == 'member') %>%
+  group_by(start_station_id,start_station_name) %>% 
+  summarise(start_station = n()) %>% 
+  arrange(desc(start_station)) %>% 
+  head(n=10)
+```
+
+```{r electric_top_member_end}
+electric_data %>% 
+  filter(member_casual == 'member') %>%
+  group_by(end_station_id,end_station_name) %>% 
+  summarise(end_station = n()) %>% 
+  arrange(desc(end_station)) %>% 
+  head(n=10)
+```
+
+
+With the start and end stations being similar for the top options.
+I am curious how many trips start and stop at the same station and if there is
+a difference between members and casuals. 
+```{r}
+electric_data %>% 
+  filter(start_station_id == end_station_id) %>%
+  group_by(start_station_name,end_station_name, member_casual) %>% 
+  summarise(trips = n()) %>% 
+  arrange(desc(trips)) %>% 
+  head(n=10)
+```
+
+how many trips start and stop at the same station?
+```{r}
+divvy_data %>% 
+  filter(start_station_id == end_station_id) %>% 
+  group_by(start_station_name,end_station_name, member_casual, rideable_type) %>% 
+  summarise(trips = n()) %>% 
+  arrange(desc(trips)) %>% 
+  head(n=10)
+```
+How many trips start and stop at different locations?
+```{r}
+divvy_data %>% 
+  filter(start_station_id != end_station_id) %>% 
+  group_by(start_station_name,end_station_name, member_casual, rideable_type) %>% 
+  summarise(trips = n()) %>% 
+  arrange(desc(trips)) %>% 
+  head(n=10)
+```
+What is interesting is that the largest frequency of start/end stations
+being the same are by Casual riders while the highest frequency of different 
+start/end stations are by member riders. 
+
+This implies that casual riders ride around and return the bike to the same
+station they took the bike from. While member riders are point A to point B.
+
+Lets see if there is a difference in ride time. Start with top then average
+
+```{r}
+divvy_data %>% 
+  filter(start_station_id == end_station_id) %>% 
+  select(start_station_name,end_station_name, member_casual,
+           rideable_type, total_time) %>% 
+  arrange(desc(total_time)) %>% 
+  head(n=10)
+```
+
+```{r}
+divvy_data %>% 
+  filter(start_station_id != end_station_id) %>% 
+  select(start_station_name,end_station_name, member_casual,
+           rideable_type, total_time) %>% 
+  arrange(desc(total_time)) %>% 
+  head(n=10)
+```
+Lets see the averages
+```{r}
+divvy_data %>% 
+  filter(start_station_id == end_station_id) %>% 
+  group_by(member_casual) %>% 
+  summarise(average_ride_time = mean(total_time))
+```
+```{r}
+divvy_data %>% 
+  filter(start_station_id != end_station_id) %>% 
+  group_by(member_casual) %>% 
+  summarise(average_ride_time = mean(total_time))
+```
+
+
+
+```{r}
+ggplot(data=divvy_data) +
+  geom_bar(mapping = aes(x= factor(month_abb,levels=month.abb),fill=member_casual))+
+  xlab("Months")+
+  facet_wrap(~rideable_type, ncol = 1) +
+  theme(axis.text.x = element_text(angle = 45))
+```
+At this point I am thinking that the docked bikes are irrelevant. 
+
+Compare ride mix weekends vs weekdays.
+```{r}
+start_date = as.POSIXct(min(divvy_data$started_at))
+end_date = as.POSIXct(max(divvy_data$ended_at))
+
+#start_date = "2023-05-01 00:00:33"
+#end_date = "2024-05-01 06:03:21"
+
+num_weekdays = sum(!weekdays(seq(from=start_date, to=end_date, by="days")) %in% c("Saturday","Sunday"))
+num_weekends = sum(weekdays(seq(from=start_date, to=end_date, by="days")) %in% c("Saturday","Sunday"))
+
+divvy_data %>% 
+  summarize(cust = "casual", total_weekend_trips = sum(divvy_data$day_week %in% c("Saturday","Sunday")
+                                      & divvy_data$member_casual == "casual"),
+            total_weekdays_trips = sum(!divvy_data$day_week %in% c("Saturday","Sunday")
+                                       & divvy_data$member_casual == "casual"),
+            avg_weekend_trips = sum(divvy_data$day_week %in% c("Saturday","Sunday")
+                                     & divvy_data$member_casual == "casual")/num_weekends,
+            avg_weekday_trips = sum(!divvy_data$day_week %in% c("Saturday","Sunday")
+                                     & divvy_data$member_casual == "casual")/num_weekdays,
+            sat_sun = num_weekends, mon_fri = num_weekdays)
+
+divvy_data %>% 
+  summarize(cust = "member", total_weekend_trips = sum(divvy_data$day_week %in% c("Saturday","Sunday")
+                                      & divvy_data$member_casual == "member"),
+            total_weekdays_trips = sum(!divvy_data$day_week %in% c("Saturday","Sunday")
+                                       & divvy_data$member_casual == "member"),
+            avg_weekend_trips = sum(divvy_data$day_week %in% c("Saturday","Sunday")
+                                     & divvy_data$member_casual == "member")/num_weekends,
+            avg_weekday_trips = sum(!divvy_data$day_week %in% c("Saturday","Sunday")
+                                     & divvy_data$member_casual == "member")/num_weekdays,
+            sat_sun = num_weekends, mon_fri = num_weekdays)
+```
+
+
+```{r}
+divvy_data %>% 
+  filter(day_week %in% c("Saturday","Sunday")) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x= factor(month_abb,levels=month.abb),fill=rideable_type))+
+  xlab("Months")+
+  facet_wrap(~member_casual, ncol =1) +
+  theme(axis.text.x = element_text(angle = 45))
+```
+Weekend distribution
+```{r}
+divvy_data %>% 
+  filter(day_week %in% c("Saturday","Sunday")) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x= factor(month_abb,levels=month.abb),fill=member_casual))+
+  xlab("Months")
+```
+Weekend or not weekend
+```{r}
+options(scipen = 9)
+
+divvy_data %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x= factor(month_abb,levels=month.abb),fill=member_casual))+
+  xlab("Months") +
+  facet_wrap(~day_week %in% c("Saturday","Sunday"), ncol=1)
+```
+
+```{r}
+divvy_data %>% 
+  group_by(member_casual) %>% 
+  summarize(avg_distance = mean(distance),avg_time = mean(total_time), 
+            zero_distance = sum(distance == 0), has_distance = sum(distance != 0),
+            min_distance = min(distance), max_distance = max(distance))
+  
+```
+
+```{r}
+divvy_data %>% 
+  filter(distance > 0) %>% 
+  group_by(member_casual) %>% 
+  summarize(avg_distance = mean(distance),avg_time = mean(total_time), 
+            zero_distance = sum(distance == 0), has_distance = sum(distance != 0),
+            min_distance = min(distance), max_distance = max(distance))
+  
+```
+
+```{r}
+divvy_data %>% 
+  filter(distance == 0) %>% 
+  group_by(member_casual) %>% 
+  summarize(avg_distance = mean(distance),avg_time = mean(total_time), 
+            zero_distance = sum(distance == 0), has_distance = sum(distance != 0),
+            min_distance = min(distance), max_distance = max(distance))
+  
+```
+
+```{r}
+options(scipen = 9)
+histvecbrk = seq(0,5000, by=500)
+
+divvy_data %>% 
+  filter(distance < 5000 & distance > 0 & member_casual == "casual") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 500, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Casual Riders",
+    subtitle = "Less than 5,000m excluding 0m",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 500) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+
+```
+```{r}
+divvy_data %>% 
+  filter(distance < 5000 & distance > 0 & member_casual == "member") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 500, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Member Riders",
+    subtitle = "Less than 5,000m excluding 0m",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 500) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+  
+```
+Looking at the distribution of time. 
+
+```{r}
+divvy_data %>% 
+  filter(distance < 5000 & total_time < 3601 & member_casual == "casual") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 500, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Casual Riders",
+    subtitle = "Less than 5,000m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 500) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+```{r}
+divvy_data %>% 
+  filter(distance < 5000 & total_time < 3601 & member_casual == "member") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 500, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Member Riders",
+    subtitle = "Less than 5,000m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 500) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+```{r}
+divvy_data %>% 
+  group_by(member_casual) %>% 
+  summarize(rides = sum(distance < 2500 & total_time < 3601))
+```
+
+```{r}
+histvecbrk2 = seq(0,2500, by=250)
+
+divvy_data %>% 
+  filter(distance < 2500 & total_time < 3601 & member_casual == "member") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 250, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Member Riders",
+    subtitle = "Less than 2,500m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 250) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+
+
+```{r}
+histvecbrk2 = seq(0,2500, by=250)
+
+divvy_data %>% 
+  filter(distance < 2500 & total_time < 3601 & member_casual == "casual") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 250, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Casual Riders",
+    subtitle = "Less than 2,500m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 250) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+```{r}
+divvy_data %>% 
+  group_by(member_casual) %>% 
+  summarize(rides = sum(distance < 2500 & total_time < 3601 & day_week == "Saturday" | distance < 2500 & total_time < 3601 & day_week == "Sunday"))
+```
+
+```{r}
+divvy_data %>% 
+  filter(member_casual == "casual" & distance < 2500 & total_time < 3601 & day_week == "Saturday" | 
+           member_casual == "casual" & distance < 2500 & total_time < 3601 & day_week == "Sunday") %>% 
+  ggplot(aes(x=distance, y = after_stat(count / sum(count)))) + 
+  geom_histogram(binwidth = 250, color = "#000000", fill = "#0099F8")+ 
+  labs(
+    title = "Distribution of Weekend Casual Riders",
+    subtitle = "Less than 2,500m and less than 3hrs",
+    caption = "Source: divvytrips data",
+    x = "Distance Meters",
+    y = "Distribution %"
+  ) +
+  stat_bin(aes(label = scales::percent(stat(round((count / sum(count)),2)))),geom = "text", vjust = 1.1, binwidth = 250) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = histvecbrk2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 8, face = "bold"),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45)
+    )
+```
+
+
+```{r}
+options(scipen = 9)
+
+divvy_data %>% 
+  filter(distance < 5000 & distance > 0) %>% 
+  ggplot(aes(x=distance)) +
+  geom_histogram()+
+  xlim(0,5000) + 
+  ylim(0,225000) +
+  facet_wrap(~member_casual)
+```
+
+
+
+
+```{r}
+options(scipen = 9)
+
+divvy_data %>% 
+  filter(distance == 0 & total_time < 3600 ) %>% 
+  ggplot(aes(x=total_time / 60)) +
+  geom_histogram(binwidth = 5, fill = "#4fb9af", color = "black") + 
+  facet_wrap(~member_casual)
+```
+
+Lets use electric bikes as an example of a marketing opportunity.
+Using the costing of electric bikes, we can compare the potential savings
+that a casual rider could receive. Assumption is that there are casual riders
+using bikes at a similar frequency to members. Potential commuters. 
+
+
+
+```{r}
+time0 = sum(divvy_data_time$total_time >= 120 & divvy_data_time$total_time < 299)
+
+time3 = sum(divvy_data_time$total_time > 299 & divvy_data_time$total_time < 479)
+
+time6 = sum(divvy_data_time$total_time > 479 & divvy_data_time$total_time < 659)
+
+time9 = sum(divvy_data_time$total_time > 659 & divvy_data_time$total_time < 839)
+
+time12 = sum(divvy_data_time$total_time > 839 & divvy_data_time$total_time < 1019)
+
+time15 = sum(divvy_data_time$total_time > 1019 & divvy_data_time$total_time < 1199)
+
+time18 = sum(divvy_data_time$total_time > 1199 & divvy_data_time$total_time < 1379)
+
+time21 = sum(divvy_data_time$total_time > 1379 & divvy_data_time$total_time < 1559)
+
+time24 = sum(divvy_data_time$total_time > 1559 & divvy_data_time$total_time < 1739)
+
+time27 = sum(divvy_data_time$total_time > 1739 & divvy_data_time$total_time < 1919)
+
+#casual
+
+time0_casual = sum(divvy_data_time$member_casual == "casual" &
+                     divvy_data_time$total_time >= 120 & divvy_data_time$total_time < 299)
+
+time3_casual = sum(divvy_data_time$member_casual == "casual" &
+                     divvy_data_time$total_time > 299 & divvy_data_time$total_time < 479)
+
+time6_casual = sum(divvy_data_time$member_casual == "casual" &
+                     divvy_data_time$total_time > 479 & divvy_data_time$total_time < 659)
+
+time9_casual = sum(divvy_data_time$member_casual == "casual" &
+                     divvy_data_time$total_time > 659 & divvy_data_time$total_time < 839)
+
+time12_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 839 & divvy_data_time$total_time < 1019)
+
+time15_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 1019 & divvy_data_time$total_time < 1199)
+
+time18_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 1199 & divvy_data_time$total_time < 1379)
+
+time21_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 1379 & divvy_data_time$total_time < 1559)
+
+time24_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 1559 & divvy_data_time$total_time < 1739)
+
+time27_casual = sum(divvy_data_time$member_casual == "casual" &
+                      divvy_data_time$total_time > 1739 & divvy_data_time$total_time < 1919)
+
+#member
+
+time0_member = sum(divvy_data_time$member_casual == "member" &
+                     divvy_data_time$total_time >= 120 & divvy_data_time$total_time < 299)
+
+time3_member = sum(divvy_data_time$member_casual == "member" &
+                     divvy_data_time$total_time > 299 & divvy_data_time$total_time < 479)
+
+time6_member = sum(divvy_data_time$member_casual == "member" &
+                     divvy_data_time$total_time > 479 & divvy_data_time$total_time < 659)
+
+time9_member = sum(divvy_data_time$member_casual == "member" &
+                     divvy_data_time$total_time > 659 & divvy_data_time$total_time < 839)
+
+time12_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 839 & divvy_data_time$total_time < 1019)
+
+time15_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 1019 & divvy_data_time$total_time < 1199)
+
+time18_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 1199 & divvy_data_time$total_time < 1379)
+
+time21_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 1379 & divvy_data_time$total_time < 1559)
+
+time24_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 1559 & divvy_data_time$total_time < 1739)
+
+time27_member = sum(divvy_data_time$member_casual == "member" &
+                      divvy_data_time$total_time > 1739 & divvy_data_time$total_time < 1919)
+#cost benefit
+
+time0_bene = ((2 *  0.44) - (2 * 0.18)) * time0_casual
+
+time3_bene = ((5 *  0.44) - (2 * 0.18)) * time3_casual
+
+time6_bene = ((8 *  0.44) - (2 * 0.18)) * time6_casual
+
+time9_bene = ((11 *  0.44) - (2 * 0.18)) * time9_casual
+
+time12_bene = ((14 *  0.44) - (2 * 0.18)) * time12_casual
+
+time15_bene = ((17 *  0.44) - (2 * 0.18)) * time15_casual
+
+time18_bene = ((20 *  0.44) - (2 * 0.18)) * time18_casual
+
+time21_bene = ((23 *  0.44) - (2 * 0.18)) * time21_casual
+
+time24_bene = ((26 *  0.44) - (2 * 0.18)) * time24_casual
+
+time27_bene = ((29 *  0.44) - (2 * 0.18)) * time27_casual
+
+time = c(2,5,8,11,14,17,20,23,26,29)
+tripscount = c(time0,time3,time6,time9,time12,time15,time18,time21,time24,time27)
+
+casualtrips = c(time0_casual,time3_casual,time6_casual,time9_casual,time12_casual,
+                time15_casual,time18_casual,time21_casual,time24_casual,time27_casual)
+
+membertrips = c(time0_member,time3_member,time6_member,time9_member,time12_member,
+                time15_member,time18_member,time21_member,time24_member,time27_member)
+
+benefit = c(time0_bene,time3_bene,time6_bene,time9_bene,time12_bene,
+                time15_bene,time18_bene,time21_bene,time24_bene,time27_bene)
+
+timeblock_chart = data.frame(time,tripscount,casualtrips,membertrips,benefit)
+
+```
+
+
+Trip counts
+```{r}
+options(scipen = 9)
+ggplot(timeblock_chart, aes(x = factor(time), y = tripscount)) +
+  geom_bar(stat = "identity", fill = "#0099F8") +
+  labs(title = "Trips Count Over Time",
+       x = "Time",
+       y = "Trips Count") +
+  theme_minimal()
+```
+
+Casual Trip counts
+```{r}
+options(scipen = 9)
+ggplot(timeblock_chart, aes(x = factor(time), y = casualtrips)) +
+  geom_bar(stat = "identity", fill = "#0099F8") +
+  labs(title = "Casual Trips Over Time",
+       x = "Time",
+       y = "Trips Count") +
+  theme_minimal()
+```
+Member Trip counts
+```{r}
+options(scipen = 9)
+ggplot(timeblock_chart, aes(x = factor(time), y = membertrips)) +
+  geom_bar(stat = "identity", fill = "#0099F8") +
+  labs(title = "Member Trips Over Time",
+       x = "Time",
+       y = "Trips Count") +
+  theme_minimal()
+```
+Casual to member benefit assuming cummuting 5 days a week. two trips.
+```{r}
+options(scipen = 9)
+ggplot(timeblock_chart, aes(x = factor(time), y = benefit)) +
+  geom_bar(stat = "identity", fill = "#0099F8") +
+  labs(title = "Benefit by Commute Time",
+       x = "Time",
+       y = "Benefit $") +
+  theme_minimal()
+```
